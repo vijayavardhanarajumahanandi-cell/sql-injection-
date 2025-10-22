@@ -1,0 +1,183 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>SQL Injection Demo — Web Preview</title>
+  <style>
+    :root{--bg:#0f1724;--card:#0b1220;--muted:#9aa7b2;--accent:#3b82f6;--success:#10b981;--danger:#ef4444}
+    *{box-sizing:border-box}
+    body{margin:0;font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,'Helvetica Neue',Arial;background:linear-gradient(180deg,#071022 0%, #071b2a 100%);color:#e6eef6;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:32px}
+    .container{width:100%;max-width:1000px;background:linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01));border-radius:14px;box-shadow:0 10px 30px rgba(2,6,23,0.6);overflow:hidden;display:grid;grid-template-columns:420px 1fr}
+    .left{padding:28px;border-right:1px solid rgba(255,255,255,0.03)}
+    .right{padding:28px}
+    h1{margin:0 0 8px;font-size:20px;letter-spacing:-0.2px}
+    p.lead{margin:0 0 14px;color:var(--muted)}
+    .mode{display:flex;gap:8px;margin:12px 0}
+    .mode button{flex:1;padding:8px 10px;border-radius:8px;border:1px solid rgba(255,255,255,0.04);background:transparent;color:var(--muted);cursor:pointer}
+    .mode button.active{background:linear-gradient(90deg, rgba(59,130,246,0.12), rgba(59,130,246,0.06));color:var(--accent);border-color:rgba(59,130,246,0.25);box-shadow:0 6px 18px rgba(59,130,246,0.06)}
+    form{display:flex;flex-direction:column;gap:10px;margin-top:8px}
+    label{font-size:13px;color:var(--muted)}
+    input[type=text], input[type=password]{padding:10px 12px;border-radius:8px;border:1px solid rgba(255,255,255,0.04);background:rgba(255,255,255,0.02);color:inherit}
+    button.primary{padding:10px 12px;border-radius:8px;border:0;background:var(--accent);color:white;font-weight:600;cursor:pointer}
+    .info{margin-top:16px;padding:12px;border-radius:8px;background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.02);font-size:13px}
+    .result{background:#021025;border-radius:10px;padding:14px;border:1px solid rgba(255,255,255,0.02);height:100%;display:flex;flex-direction:column}
+    .console{flex:1;overflow:auto;font-family:monospace;background:linear-gradient(180deg, rgba(255,255,255,0.01), rgba(255,255,255,0.00));padding:12px;border-radius:8px;border:1px dashed rgba(255,255,255,0.02)}
+    .meta{margin-top:12px;display:flex;gap:8px;align-items:center}
+    .badge{padding:6px 8px;border-radius:8px;font-size:13px;color:var(--muted);background:rgba(255,255,255,0.02)}
+    .query{white-space:pre-wrap;margin-top:10px;font-family:monospace;color:#cbe7ff}
+    .footer{margin-top:14px;color:var(--muted);font-size:13px}
+    .success{color:var(--success);font-weight:600}
+    .fail{color:var(--danger);font-weight:600}
+    @media (max-width:880px){.container{grid-template-columns:1fr;max-width:720px}.left{border-right:none}}
+  </style>
+</head>
+<body>
+  <div class="container" role="application">
+    <div class="left">
+      <h1>SQL Injection Demo</h1>
+      <p class="lead">Interactive demo to show why string concatenation is dangerous and how prepared statements protect you.</p>
+
+      <div class="mode" role="tablist" aria-label="Mode">
+        <button id="mode-vul" class="active" aria-pressed="true">Vulnerable (Concat)</button>
+        <button id="mode-sec">Secure (Prepared)</button>
+      </div>
+
+      <form id="loginForm" onsubmit="return false;">
+        <div>
+          <label for="username">Username</label>
+          <input id="username" type="text" value="" placeholder="admin or user or try injection" />
+        </div>
+        <div>
+          <label for="password">Password</label>
+          <input id="password" type="password" value="" placeholder="admin123 or user123" />
+        </div>
+        <div style="display:flex;gap:8px;margin-top:6px;">
+          <button id="loginBtn" class="primary">Login</button>
+          <button id="exampleBtn" type="button">Fill injection</button>
+        </div>
+      </form>
+
+      <div class="info">
+        <div><strong>Try this SQL Injection:</strong> <code>' OR '1'='1' --</code></div>
+        <div style="margin-top:6px"><strong>Valid users:</strong> admin/admin123, user/user123</div>
+      </div>
+
+    </div>
+
+    <div class="right">
+      <div class="result">
+        <div style="display:flex;justify-content:space-between;align-items:center;">
+          <div>
+            <div class="badge">Mode: <span id="modeLabel">VULNERABLE</span></div>
+          </div>
+          <div class="meta">
+            <div class="badge">DB: H2 (in-memory simulated)</div>
+            <div class="badge">Output</div>
+          </div>
+        </div>
+
+        <div class="console" id="console" aria-live="polite">
+          <!-- dynamic logs -->
+        </div>
+
+        <div class="query" id="queryArea">
+          <!-- query preview -->
+        </div>
+
+        <div class="footer">Tip: In the vulnerable mode the injected payload comments out the password check and logs you in as the first matching user.</div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // Simple front-end-only simulation
+    const users = [ {id:1, username:'admin', password:'admin123'}, {id:2, username:'user', password:'user123'} ];
+    let mode = 'vulnerable';
+    const modeVul = document.getElementById('mode-vul');
+    const modeSec = document.getElementById('mode-sec');
+    const modeLabel = document.getElementById('modeLabel');
+    const consoleEl = document.getElementById('console');
+    const queryArea = document.getElementById('queryArea');
+    const usernameInput = document.getElementById('username');
+    const passwordInput = document.getElementById('password');
+    const loginBtn = document.getElementById('loginBtn');
+    const exampleBtn = document.getElementById('exampleBtn');
+
+    function log(...lines){
+      lines.forEach(l=>{
+        const div=document.createElement('div');div.textContent=l;consoleEl.appendChild(div);
+      });
+      consoleEl.scrollTop = consoleEl.scrollHeight;
+    }
+
+    function setMode(m){
+      mode = m;
+      modeLabel.textContent = m.toUpperCase();
+      modeVul.classList.toggle('active', m==='vulnerable');
+      modeSec.classList.toggle('active', m==='secure');
+      modeVul.setAttribute('aria-pressed', m==='vulnerable');
+      modeSec.setAttribute('aria-pressed', m==='secure');
+      queryArea.textContent = '';
+      consoleEl.innerHTML = '';
+      log('Switched to', m.toUpperCase(), '(client-side simulation)');
+    }
+
+    modeVul.addEventListener('click', ()=>setMode('vulnerable'));
+    modeSec.addEventListener('click', ()=>setMode('secure'));
+
+    exampleBtn.addEventListener('click', ()=>{
+      usernameInput.value = "' OR '1'='1' --";
+      passwordInput.value = 'anything';
+    });
+
+    loginBtn.addEventListener('click', ()=>{
+      const u = usernameInput.value;
+      const p = passwordInput.value;
+      log('===========================================');
+      log('Login Attempt: ' + u);
+
+      if(mode === 'vulnerable'){
+        // Construct naive concatenated query
+        const q = "SELECT * FROM users WHERE username = '" + u + "' AND password = '" + p + "'";
+        queryArea.textContent = 'Query:\n' + q;
+        log('Mode: VULNERABLE (String concatenation)');
+        log('Query: ' + q);
+
+        // naive evaluation: if injection contains OR 1=1, treat as match
+        const normalized = u.replace(/\s+/g,' ').toLowerCase();
+        if(normalized.includes("' or '1'='1") || normalized.includes("or 1=1") ){
+          const user = users[0];
+          log('Result: LOGIN SUCCESSFUL! ✓');
+          log('User ID: ' + user.id);
+          log('Username: ' + user.username);
+          return;
+        }
+
+        // else check credentials exactly
+        const found = users.find(x=>x.username===u && x.password===p);
+        if(found){ log('Result: LOGIN SUCCESSFUL! ✓'); log('User ID: '+found.id); log('Username: '+found.username); }
+        else{ log('Result: LOGIN FAILED ✗'); }
+
+      } else {
+        // Secure: prepared statement simulation
+        const q = "SELECT * FROM users WHERE username = ? AND password = ?";
+        queryArea.textContent = 'Query:\n' + q + '\nParameters: username=' + u + ', password=';
+        log('Mode: SECURE (Prepared statement simulation)');
+        log('Query: ' + q);
+        log('Parameters: username=' + u + ', password=');
+
+        // Strict check - no injection parsing
+        const found = users.find(x=>x.username===u && x.password===p);
+        if(found){ log('Result: LOGIN SUCCESSFUL! ✓'); log('User ID: '+found.id); log('Username: '+found.username); }
+        else{ log('Result: LOGIN FAILED ✗'); }
+      }
+    });
+
+    // initialize
+    setMode('vulnerable');
+    log('Welcome to the SQL Injection Demo (web preview)');
+    log('Use the buttons on the left to switch mode and try the injection example.');
+  </script>
+</body>
+</html>
